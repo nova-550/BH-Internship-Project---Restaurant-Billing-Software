@@ -105,6 +105,10 @@ if st.session_state.cart:
     grand_total = total + gst_total
     st.success(f"**Total (incl. GST): ₹{grand_total:.2f}**")
 
+    customer_name = st.text_input("👤 Enter Customer Name")
+    if not customer_name:
+        st.warning("Please enter the customer's name to proceed with the order.")
+
     # Place Order Button
     if st.button("✅ Place Order"):
         st.session_state.order_placed = True
@@ -123,9 +127,56 @@ if st.session_state.cart:
 
             st.markdown(f"### 🧾 **Grand Total: ₹{grand_total:.2f}**")
             st.markdown(f"🕒 Time: {datetime.now().strftime('%d-%m-%Y %I:%M %p')}")
+        # Store order in session state
+
+        if customer_name.strip() == "":
+            st.warning("Please enter customer name before placing the order.")
+            st.stop()
+
+        conn = sqlite3.connect("db/restaurant.db")
+        cursor = conn.cursor()
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        for entry in st.session_state.cart:
+            item_total = entry['price'] * entry['qty']
+            gst_amt = (item_total * entry['gst']) / 100
+            grand_total = item_total + gst_amt
+
+            cursor.execute('''
+                INSERT INTO orders (customer_name, item, quantity, price, gst, total, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                customer_name,
+                entry['item'],
+            entry['qty'],
+            entry['price'],
+            entry['gst'],
+            grand_total,
+            timestamp
+        ))
+
+        conn.commit()
+        conn.close()
 
         # Clear cart after order
         st.session_state.cart.clear()
 
 else:
     st.info("🛒 Your cart is empty. Add items to proceed.")
+
+st.markdown("---")
+st.subheader("📚 Order History")
+
+conn = sqlite3.connect("db/restaurant.db")
+cursor = conn.cursor()
+
+cursor.execute("SELECT customer_name, item, quantity, total, timestamp FROM orders ORDER BY timestamp DESC")
+rows = cursor.fetchall()
+conn.close()
+
+if rows:
+    for row in rows[:10]:  # Show latest 10 orders
+        cust_name, item, qty, total, time = row
+        st.write(f"🧾 **{cust_name}** ordered **{item} x {qty}** | ₹{total:.2f} on 🕒 {time}")
+else:
+    st.info("No orders placed yet.")
