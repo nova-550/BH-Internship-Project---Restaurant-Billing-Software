@@ -1,44 +1,43 @@
+# File: utils/db_utils.py
+
 import sqlite3
+import os
 
-def connect_db():
-    return sqlite3.connect("db/restaurant.db")
+DB_PATH = os.path.join("db", "restaurant.db")
 
-def create_tables():
-    conn = connect_db()
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS menu (
-            item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
-            category TEXT,
-            price REAL NOT NULL,
-            gst REAL DEFAULT 5.0
-        );
+            price REAL NOT NULL
+        )
     """)
-
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS orders (
-            order_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            mode TEXT CHECK(mode IN ('Dine-in', 'Takeaway')),
-            payment_method TEXT CHECK(payment_method IN ('Cash', 'Card', 'UPI')),
-            subtotal REAL,
-            gst_amount REAL,
-            discount REAL,
-            total REAL,
-            timestamp TEXT
-        );
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            items TEXT NOT NULL,
+            total REAL NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
     """)
+    conn.commit()
+    conn.close()
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS order_items (
-            item_id INTEGER,
-            order_id INTEGER,
-            quantity INTEGER,
-            FOREIGN KEY (item_id) REFERENCES menu(item_id),
-            FOREIGN KEY (order_id) REFERENCES orders(order_id)
-        );
-    """)
+def fetch_menu_items():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name, price FROM menu")
+    rows = cursor.fetchall()
+    conn.close()
+    return [{"id": row[0], "name": row[1], "price": row[2]} for row in rows]
 
+def insert_order(order, total):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    items_str = "; ".join([f"{item['name']} x {item['quantity']}" for item in order])
+    cursor.execute("INSERT INTO orders (items, total) VALUES (?, ?)", (items_str, total))
     conn.commit()
     conn.close()
