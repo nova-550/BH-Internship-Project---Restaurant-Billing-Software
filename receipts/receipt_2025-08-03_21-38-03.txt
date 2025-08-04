@@ -1,5 +1,0 @@
---- Restaurant Bill Receipt ---
-Paneer Butter Masala x 1 = ₹180.0
-
-Total: ₹180.0
-Thank you for dining with us!
