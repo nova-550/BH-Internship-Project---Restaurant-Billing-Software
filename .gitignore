@@ -1,3 +1,7 @@
 venv
 receipts
 .env
+clear_db.py
+requirements.txt
+db
+__pycache__
