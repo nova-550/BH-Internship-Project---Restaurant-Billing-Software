@@ -1,40 +1,93 @@
 import streamlit as st
-from utils.calculator import calculate_total
-from utils.db_utils import fetch_menu_items, insert_order
-from datetime import datetime
-import os
-from generate_pdf import generate_pdf_receipt
-
-RECEIPT_DIR = "receipts"
-os.makedirs(RECEIPT_DIR, exist_ok=True)
+from utils.db_utils import insert_order
+from utils.calculator import calculate_total, apply_discount
+from utils.pdf_generator import generate_pdf_receipt
+from utils.notify import send_notification
+import time
+from config import RECEIPT_DIR
 
 def render_main_ui():
     st.title("🍽️ Restaurant Billing System")
-    menu_items = fetch_menu_items()
+    st.markdown("---")
+    
+    # Sample menu - replace with dynamic loading from DB
+    menu_items = [
+        {"id": 1, "name": "Paneer Butter Masala", "price": 180},
+        {"id": 2, "name": "Chicken Biryani", "price": 220},
+        {"id": 3, "name": "Butter Naan", "price": 40},
+        {"id": 4, "name": "Veg Pulao", "price": 150},
+        {"id": 5, "name": "Cold Drink", "price": 30}, 
+    ]
 
-    if not menu_items:
-        st.warning("No menu items found. Please seed the database.")
-        return
-
+    order_type = st.radio("Order Type:", ["Dine-in", "Takeaway"], horizontal=True)
+    
+    # Order selection UI
     order = []
     for item in menu_items:
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.write(f"**{item['name']}** - ₹{item['price']}")
-        with col2:
-            qty = st.number_input(f"Quantity for {item['name']}", min_value=0, step=1, key=item['id'])
-            if qty > 0:
-                order.append({"id": item['id'], "name": item['name'], "price": item['price'], "quantity": qty})
+        cols = st.columns([5, 2, 3])
+        with cols[0]:
+            st.write(f"**{item['name']}**")
+        with cols[1]:
+            qty = st.number_input("Qty", key=f"qty_{item['id']}_{item['name']}", min_value=0, max_value=20, value=0)  # Unique key
+        with cols[2]:
+            st.write(f"₹{item['price']:.2f}")
+        
+        if qty > 0:
+            order.append({
+                "id": item["id"],
+                "name": item["name"],
+                "price": item["price"],
+                "quantity": qty
+            })
 
-    if st.button("✅ Generate Bill"):
-        if not order:
-            st.error("Please select at least one item.")
-            return
+    if not order:
+        st.info("Please select items to place an order")
+        return
 
-        total = calculate_total(order)
-        insert_order(order, total)
-        receipt_path = generate_pdf_receipt(order, total)
+    # Order summary
+    with st.expander("📝 Order Summary", expanded=True):
+        st.subheader("Your Order")
+        for item in order:
+            st.write(f"{item['name']} x {item['quantity']} - ₹{item['price'] * item['quantity']:.2f}")
+        
+        subtotal = calculate_total(order)
+        discount = st.number_input("Discount (%)", min_value=0, max_value=100, value=0)
+        total = apply_discount(subtotal, discount)
+        
+        st.markdown("---")
+        st.metric("Total Amount", f"₹{total:.2f}")
+        
+        customer_notes = st.text_area("Special Instructions:")
 
-        st.success("Bill generated successfully!")
-        with open(receipt_path, "rb") as f:
-            st.download_button("Download Receipt", f, file_name=os.path.basename(receipt_path))
+        if st.button("💳 Process Payment", key="process_payment"):
+            try:
+                with st.spinner("Processing your order..."):
+                    # Insert order and get ID
+                    order_id = insert_order(order, total, order_type, customer_notes)
+                    
+                    # Generate receipt
+                    receipt_path = generate_pdf_receipt(order, total, discount)
+                    
+                    # Send notification (replace with your email)
+                    send_notification(
+                        subject="New Order Received",
+                        body=f"Order #{order_id} has been placed successfully.",
+                        to_email="admin@example.com"
+                    )
+                    
+                    st.success(f"Order #{order_id} processed successfully!")
+                    st.balloons()
+                    
+                    # Download receipt
+                    with open(receipt_path, "rb") as f:
+                        st.download_button(
+                            "📄 Download Receipt",
+                            f,
+                            file_name=f"receipt_{order_id}.pdf"
+                        )
+                    
+                    time.sleep(2)
+                    st.rerun()
+                    
+            except Exception as e:
+                st.error(f"Error processing order: {str(e)}")
