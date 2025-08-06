@@ -1,5 +1,3 @@
-# File: seed_menu.py
-
 import sqlite3
 import os
 
@@ -16,9 +14,13 @@ MENU = [
 def seed_menu():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+    cursor.execute("CREATE TABLE IF NOT EXISTS menu (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, price REAL NOT NULL)")
     cursor.executemany("INSERT INTO menu (name, price) VALUES (?, ?)", MENU)
     conn.commit()
     conn.close()
 
 if __name__ == '__main__':
     seed_menu()
+    print("Menu seeded successfully.")
+else:
+    print("Menu seeding module imported. Call seed_menu() to seed the database.")

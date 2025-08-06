@@ -1,7 +1,9 @@
-venv
-receipts
+venv/
+receipts/
 .env
 clear_db.py
 requirements.txt
-db
-__pycache__
+__pycache__/
+db/__pycache__/
+ui/__pycache__/
+utils/__pycache__/

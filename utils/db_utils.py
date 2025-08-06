@@ -1,12 +1,5 @@
-# File: utils/db_utils.py
-
-from dotenv import load_dotenv
 import sqlite3
 import os
-
-load_dotenv()
-DB_PATH = os.getenv("DATABASE_PATH")
-
 
 DB_PATH = os.path.join("db", "restaurant.db")
 
