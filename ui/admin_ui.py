@@ -95,7 +95,7 @@ def render_admin_ui():
 
             
         if st.button("Export to CSV"):
-            csv_path = export_to_csv(orders, "orders_export.csv")
+            csv_path = export_to_csv(orders, "data/orders_export.csv")
             st.success(f"Exported to {csv_path}")
         else:
             st.warning("No orders found")
