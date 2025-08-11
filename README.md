@@ -21,7 +21,7 @@ A simple web application for managing restaurant orders, including order placeme
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/yourusername/restaurant-order-management.git
+   git clone https://github.com/nova-550/BH-Internship-Project---Restaurant-Billing-Software.git
    cd restaurant-order-management
    ```
 
