@@ -1,11 +1,16 @@
 import smtplib
+import os
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 def send_sales_report(to_email, subject, body):
     """Send a sales report via email."""
-    from_email = "your_email@example.com"  # Replace with your email
-    password = "your_password"  # Replace with your email password
+    from_email = os.getenv("EMAIL_USER")  # Use environment variable for email
+    password = os.getenv("EMAIL_PASSWORD")  # Use environment variable for password
+
+    # Ensure body is a string
+    if not isinstance(body, str):
+        body = str(body)  # Convert to string if not already
 
     # Create the email message
     msg = MIMEMultipart()
@@ -26,3 +31,10 @@ def send_sales_report(to_email, subject, body):
         print("Email sent successfully!")
     except Exception as e:
         print(f"Failed to send email: {e}")
+
+# Example usage
+if __name__ == "__main__":
+    to_email = "recipient@example.com"  # Replace with recipient's email
+    subject = "Sales Report"
+    body = "This is the body of the sales report."  # Replace with actual report content
+    send_sales_report(to_email, subject, body)

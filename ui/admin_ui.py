@@ -1,23 +1,29 @@
 import streamlit as st
+import sqlite3
 import pandas as pd
+import plotly.express as px
+from datetime import datetime, timedelta
 from utils.db_utils import (
+    init_db,
     get_all_orders,
     get_sales_summary,
-    get_top_items,
-    clear_test_data,
-    export_to_csv
+    export_to_csv,
+    clear_test_data
 )
-from datetime import datetime, timedelta
-import plotly.express as px
 from utils.email_report import send_sales_report
 from config import ADMIN_PASSWORD
+import os
+
+DB_PATH = os.path.join("db", "restaurant.db")
 
 def password_protected():
+    """Password protection for admin dashboard"""
     if "admin_auth" not in st.session_state:
         st.session_state.admin_auth = False
     
     if not st.session_state.admin_auth:
-        password = st.text_input("Admin Password", type="password")
+        st.title("Admin Login")
+        password = st.text_input("Enter Admin Password", type="password")
         if st.button("Login"):
             if password == ADMIN_PASSWORD:
                 st.session_state.admin_auth = True
@@ -28,81 +34,120 @@ def password_protected():
     return True
 
 def render_admin_ui():
-    st.title("📊 Admin Dashboard")
-    
+    """Main admin dashboard with enhanced reporting"""
     if not password_protected():
         return
     
+    st.title("📊 Restaurant Admin Dashboard")
+    
     # Logout button
-    if st.button("Logout"):
+    if st.button("🚪 Logout"):
         st.session_state.admin_auth = False
         st.rerun()
     
     # Date range selector
-    col1, col2 = st.columns(2)
-    today = datetime.now()
-    with col1:
-        start_date = st.date_input("Start Date", today - timedelta(days=7))
-    with col2:
-        end_date = st.date_input("End Date", today)
+    st.sidebar.header("Filters")
+    today = datetime.now().date()
+    default_start = today - timedelta(days=7)
     
-    # Data tabs
-    tab1, tab2, tab3 = st.tabs(["📈 Sales Report", "🍽️ Popular Items", "🗃️ All Orders"])
+    start_date = st.sidebar.date_input("Start Date", default_start)
+    end_date = st.sidebar.date_input("End Date", today)
+    
+    if start_date > end_date:
+        st.sidebar.error("End date must be after start date")
+        return
+    
+    # Quick filter buttons
+    st.sidebar.subheader("Quick Filters")
+    cols = st.sidebar.columns(2)
+    with cols[0]:
+        if st.button("Today"):
+            start_date = today
+            end_date = today
+    with cols[1]:
+        if st.button("This Week"):
+            start_date = today - timedelta(days=today.weekday())
+            end_date = today
+    
+    # Main dashboard tabs
+    tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🍽️ Orders", "⚙️ Admin Tools"])
     
     with tab1:
-        st.subheader("Sales Summary")
-        # Assuming start_date and end_date are defined somewhere in your code
+        # Sales Summary
         summary = get_sales_summary(start_date, end_date)
-    
-        # Check if the summary dictionary is empty
-        if not summary:  # This checks if the summary dictionary is empty
-            st.write("No sales data available for the selected date range.")
-        else:
-            st.write(f"Total Sales: {summary['total_sales']}")
-            st.write(f"Total Orders: {summary['total_orders']}")
-
+        
+        # Metrics
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Sales", f"₹{summary['total_sales']:.2f}")
+        col2.metric("Total Orders", summary['total_orders'])
+        col3.metric("Avg. Order", f"₹{summary['avg_order']:.2f}")
+        
+        # Sales Trends Chart
+        st.subheader("Sales Trends")
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            trend_data = pd.read_sql(f"""
+                SELECT date(created_at) as day, 
+                       SUM(total) as sales,
+                       COUNT(*) as orders
+                FROM orders
+                WHERE date(created_at) BETWEEN '{start_date}' AND '{end_date}'
+                GROUP BY day
+                ORDER BY day
+            """, conn)
             
-        if st.button("Email Sales Report"):
+            if not trend_data.empty:
+                fig = px.line(trend_data, x='day', y='sales', 
+                             title="Daily Sales Trend",
+                             labels={'day': 'Date', 'sales': 'Total Sales'})
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No sales data for selected period")
+        except Exception as e:
+            st.error(f"Error loading trends: {str(e)}")
+        
+        # Email report section
+        if st.button("📩 Generate Sales Report"):
+            try:
                 send_sales_report(summary, start_date, end_date)
-                st.success("Report sent successfully!")
-        else:
-            st.warning("No sales data found for selected period")
+                st.success("Sales report emailed successfully!")
+            except Exception as e:
+                st.error(f"Failed to send report: {str(e)}")
     
     with tab2:
-        st.subheader("Most Popular Items")
-        # Assuming start_date and end_date are defined somewhere in your code
-        top_items = get_top_items(start_date, end_date)
-    
-        # Check if the top_items list is empty
-        if not top_items:  # This checks if the list is empty
-            st.write("No top items available for the selected date range.")
+        # Order listing
+        st.subheader("Recent Orders")
+        orders = get_all_orders(start_date, end_date)
+        
+        if not orders:
+            st.info("No orders found for selected period")
         else:
-            for item in top_items:
-                st.write(f"Item: {item[0]}, Total Sales: {item[1]}")
-
+            # Convert to DataFrame for better display
+            df = pd.DataFrame(orders, columns=[
+                "ID", "Items", "Total", "Type", "Notes", "Created At", "Status"
+            ])
+            st.dataframe(df)
+            
+            # Export button
+            if st.button("Export to CSV"):
+                try:
+                    export_to_csv(orders, "orders_export.csv")
+                    st.success("Orders exported to orders_export.csv")
+                except Exception as e:
+                    st.error(f"Export failed: {str(e)}")
     
     with tab3:
-        st.subheader("All Orders")
-        # Assuming start_date and end_date are defined somewhere in your code
-        orders = get_all_orders(start_date, end_date)
-    
-        # Check if the orders list is empty
-        if not orders:  # This checks if the list is empty
-            st.write("No orders available for the selected date range.")
-        else:
-            for order in orders:
-                st.write(f"Order ID: {order[0]}, Items: {order[1]}, Total: {order[2]}, Created At: {order[5]}")
-
+        st.warning("Administrative Actions")
+        
+        # Database management
+        if st.checkbox("Show Database Tools"):
+            if st.button("🔄 Initialize/Reset Database"):
+                init_db()
+                st.success("Database initialized/reset")
             
-        if st.button("Export to CSV"):
-            csv_path = export_to_csv(orders, "data/orders_export.csv")
-            st.success(f"Exported to {csv_path}")
-        else:
-            st.warning("No orders found")
-    
-    # Admin tools
-    if st.checkbox("Show Admin Tools"):
-        st.warning("Danger Zone! These actions cannot be undone")
-        if st.button("🔄 Reset Test Data"):
-            clear_test_data()
-            st.success("Test data cleared")
+            if st.button("🧹 Clear Test Data"):
+                clear_test_data()
+                st.success("Test data cleared")
+            
+            if st.button("📊 Refresh Statistics"):
+                st.rerun()

@@ -3,7 +3,9 @@ from ui.main_ui import render_main_ui
 from ui.admin_ui import render_admin_ui
 from utils.db_utils import init_db, check_db_integrity
 import time
-
+from utils.db_utils import update_schema
+update_schema()
+   
 def setup():
     st.set_page_config(
         page_title="Restaurant Billing System",

@@ -1,24 +1,22 @@
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
+from fpdf import FPDF
 import os
 
-def generate_pdf_receipt(order, total, discount):
-    receipt_path = os.path.join("receipts", f"receipt_{int(total)}.pdf")
-    
-    c = canvas.Canvas(receipt_path, pagesize=letter)
-    width, height = letter
-    
-    c.drawString(100, height - 100, "Receipt")
-    c.drawString(100, height - 120, "Items:")
-    
-    y_position = height - 140
-    for item in order:
-        c.drawString(100, y_position, f"{item['name']} x {item['quantity']} - ₹{item['price'] * item['quantity']:.2f}")
-        y_position -= 20
-    
-    c.drawString(100, y_position, f"Subtotal: ₹{total:.2f}")
-    c.drawString(100, y_position - 20, f"Discount: {discount}%")
-    c.drawString(100, y_position - 40, f"Total: ₹{total * (1 - discount / 100):.2f}")
-    
-    c.save()
-    return receipt_path
+def generate_pdf_receipt(order_details, total, order_id):
+    """Generate PDF receipt with error handling"""
+    try:
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", size=12)
+        
+        # Add receipt content
+        pdf.cell(200, 10, txt=f"Receipt for Order #{order_id}", ln=True)
+        
+        # Ensure receipts directory exists
+        os.makedirs("receipts", exist_ok=True)
+        
+        # Save the file
+        filepath = f"receipts/receipt_{order_id}.pdf"
+        pdf.output(filepath)
+        return filepath
+    except Exception as e:
+        raise Exception(f"Failed to generate PDF: {str(e)}")

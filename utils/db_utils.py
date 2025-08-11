@@ -1,70 +1,91 @@
 import sqlite3
-import csv
-# import pandas as pd
 import os
+from datetime import datetime
 
 DB_PATH = os.path.join("db", "restaurant.db")
 
 def init_db():
-    """Initialize or update the database schema"""
+    """Initialize database with proper schema"""
+    os.makedirs("db", exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    # First check if the table exists
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='orders'")
-    table_exists = cursor.fetchone()
-    
-    if table_exists:
-        # Check if created_at column exists
-        cursor.execute("PRAGMA table_info(orders)")
-        columns = [column[1] for column in cursor.fetchall()]
+    try:
+        # Enable WAL mode for better concurrency
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA foreign_keys=ON")
         
-        if 'created_at' not in columns:
-            # Step 1: Add the column without a default value
-            cursor.execute("ALTER TABLE orders ADD COLUMN created_at DATETIME")
-            
-            # Step 2: Update existing rows to set created_at to the current timestamp
-            cursor.execute("UPDATE orders SET created_at = CURRENT_TIMESTAMP")
-            
-            # Step 3: Set the default value for future inserts
-            cursor.execute("CREATE TABLE new_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, items TEXT NOT NULL, total REAL NOT NULL, order_type TEXT, customer_notes TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-            cursor.execute("INSERT INTO new_orders (id, items, total, order_type, customer_notes, created_at) SELECT id, items, total, order_type, customer_notes, created_at FROM orders")
-            cursor.execute("DROP TABLE orders")
-            cursor.execute("ALTER TABLE new_orders RENAME TO orders")
-            
-            conn.commit()
-    else:
-        # Create new table with all columns
         cursor.execute("""
-            CREATE TABLE orders (
+            CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 items TEXT NOT NULL,
                 total REAL NOT NULL,
                 order_type TEXT,
                 customer_notes TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                status TEXT DEFAULT 'completed'
             )
         """)
         conn.commit()
-    
-    conn.close()
-
+    except Exception as e:
+        print(f"Database error: {str(e)}")
+    finally:
+        conn.close()
 
 def insert_order(order, total, order_type=None, customer_notes=None):
+    """Insert order with error handling and verification"""
+    os.makedirs("db", exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+    
     try:
-        items_str = "; ".join([f"{item['name']} x {item['quantity']}" for item in order])
+        items_str = "|".join([
+            f"{item['id']}:{item['name']}:{item['price']}:{item['quantity']}" 
+            for item in order
+        ])
+        
         cursor.execute(
-            "INSERT INTO orders (items, total, order_type, customer_notes) VALUES (?, ?, ?, ?)",
+            """INSERT INTO orders 
+            (items, total, order_type, customer_notes) 
+            VALUES (?, ?, ?, ?)""",
             (items_str, total, order_type, customer_notes)
         )
         order_id = cursor.lastrowid
         conn.commit()
+        
+        # Verify insertion
+        cursor.execute("SELECT id FROM orders WHERE id = ?", (order_id,))
+        if not cursor.fetchone():
+            raise Exception("Order verification failed - not found in database")
+            
         return order_id
     except Exception as e:
         conn.rollback()
-        raise e
+        raise Exception(f"Failed to create order: {str(e)}")
+    finally:
+        conn.close()
+
+
+def update_schema():
+    """Add status column if missing"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        # Check if status column exists
+        cursor.execute("PRAGMA table_info(orders)")
+        columns = [col[1] for col in cursor.fetchall()]
+        
+        if 'status' not in columns:
+            print("Adding status column...")
+            cursor.execute("ALTER TABLE orders ADD COLUMN status TEXT DEFAULT 'completed'")
+            conn.commit()
+            print("Schema updated successfully")
+        else:
+            print("Status column already exists")
+            
+    except Exception as e:
+        print(f"Schema update failed: {e}")
     finally:
         conn.close()
 
@@ -87,30 +108,45 @@ def get_all_orders(start_date=None, end_date=None):
     conn.close()
     return orders
 
-
 def get_sales_summary(start_date=None, end_date=None):
-    """Retrieve a summary of sales from the database within a date range."""
+    """Get sales summary with backward compatibility"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    query = "SELECT SUM(total) FROM orders"
-    params = []
-    
-    if start_date and end_date:
-        query += " WHERE created_at BETWEEN ? AND ?"
-        params.extend([start_date, end_date])
-    
-    cursor.execute(query, params)
-    total_sales = cursor.fetchone()[0] or 0  # Handle case where there are no orders
-    cursor.execute("SELECT COUNT(*) FROM orders" + ("" if not params else " WHERE created_at BETWEEN ? AND ?"), params)
-    total_orders = cursor.fetchone()[0] or 0  # Handle case where there are no orders
-    
-    conn.close()
-    return {
-        "total_sales": total_sales,
-        "total_orders": total_orders
-    }
-
+    try:
+        # First check if status column exists
+        cursor.execute("PRAGMA table_info(orders)")
+        columns = [col[1] for col in cursor.fetchall()]
+        has_status = 'status' in columns
+        
+        query = """
+            SELECT 
+                SUM(total) as total_sales, 
+                COUNT(*) as total_orders,
+                AVG(total) as avg_order
+            FROM orders
+            """ 
+        
+        # Only filter by status if the column exists
+        if has_status:
+            query += " WHERE status = 'completed'"
+        
+        params = []
+        if start_date and end_date:
+            query += " AND " if has_status else " WHERE "
+            query += "date(created_at) BETWEEN ? AND ?"
+            params.extend([start_date, end_date])
+        
+        cursor.execute(query, params)
+        result = cursor.fetchone()
+        
+        return {
+            "total_sales": result[0] or 0,
+            "total_orders": result[1] or 0,
+            "avg_order": result[2] or 0
+        }
+    finally:
+        conn.close()
 
 def get_top_items(start_date=None, end_date=None):
     """Retrieve the top-selling items from the database within a date range."""
@@ -169,3 +205,4 @@ def check_db_integrity():
         }
     finally:
         conn.close()
+
